@@ -1,0 +1,58 @@
+from flask import Flask, request, jsonify
+import pandas as pd
+import joblib
+
+# Initialize Flask app
+app = Flask(__name__)
+
+# Load the trained models and preprocessing tools
+rf_disease = joblib.load("rf_disease_model.pkl")
+rf_risk = joblib.load("rf_risk_model.pkl")
+label_encoders = joblib.load("label_encoders.pkl")
+scaler = joblib.load("scaler.pkl")
+
+# Define numerical columns
+numerical_cols = [
+    "Age", "BMI", "Blood_Pressure_Systolic", "Blood_Pressure_Diastolic",
+    "Blood_Sugar", "Hemoglobin", "Iron_Intake", "Hormone_Levels",
+    "Number_of_Pregnancies", "Fetal_Weight", "Amniotic_Fluid_Index"
+]
+
+# Define endpoint for predictions
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        # Get user input from the frontend
+        user_input = request.json
+
+        # Preprocess the input
+        input_df = pd.DataFrame([user_input])
+
+        # Encode categorical variables
+        for col, le in label_encoders.items():
+            if col in input_df:
+                input_df[col] = le.transform(input_df[col])
+
+        # Scale numerical variables
+        for col in numerical_cols:
+            if col in input_df:
+                input_df[col] = (input_df[col] - scaler.mean_[numerical_cols.index(col)]) / scaler.scale_[numerical_cols.index(col)]
+
+        # Make predictions
+        predicted_disease = rf_disease.predict(input_df)[0]
+        predicted_risk = rf_risk.predict(input_df)[0]
+
+        # Decode predictions
+        predicted_disease = label_encoders["Disease"].inverse_transform([predicted_disease])[0]
+        predicted_risk = label_encoders["Risk_Level"].inverse_transform([predicted_risk])[0]
+
+        return jsonify({
+            "Predicted Disease": predicted_disease,
+            "Predicted Risk Level": predicted_risk
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+# Run the apps
+if __name__ == '__main__':
+    app.run(debug=True)
